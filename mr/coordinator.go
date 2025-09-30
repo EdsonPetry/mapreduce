@@ -1,4 +1,4 @@
-// mr is the library code
+// Package mr is the library code
 package mr
 
 import (
@@ -10,16 +10,47 @@ import (
 )
 
 type Coordinator struct {
-	// Your definitions here.
+	MapTasks    []Task
+	ReduceTasks []Task
+}
+
+type Task struct {
+	ID       int
+	Type     TaskType
+	State    TaskState
+	FileName string
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
-// an example RPC handler.
-//
+// Example is an example RPC handler.
 // the RPC argument and reply types are defined in rpc.go.
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
+	return nil
+}
+
+func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
+	// TODO: Implement AssignTask logic
+	// find idle Map task.
+	for i := range c.MapTasks {
+		task := &c.MapTasks[i]
+
+		if task.State == Idle {
+			task.State = InProgress
+			// TODO: add deadline here
+
+			reply.TaskType = MapTask
+			reply.TaskID = task.ID
+			reply.FileName = task.FileName
+			reply.NumReducers = len(c.ReduceTasks)
+
+			return nil
+		}
+	}
+
+	// no idle map tasks found, for now we'll just return
+
 	return nil
 }
 
@@ -37,7 +68,7 @@ func (c *Coordinator) server() {
 	go http.Serve(l, nil)
 }
 
-// main/mrcoordinator.go calls Done() periodically to find out
+// Done is called by main/mrcoordinator.go periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
 	ret := false
@@ -47,13 +78,21 @@ func (c *Coordinator) Done() bool {
 	return ret
 }
 
-// create a Coordinator.
+// MakeCoordinator creates a Coordinator.
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
-	// Your code here.
+	for i, file := range files {
+		task := Task{i, MapTask, Idle, file}
+		c.MapTasks = append(c.MapTasks, task)
+	}
+
+	for i := range nReduce {
+		task := Task{i, ReduceTask, Idle, ""}
+		c.ReduceTasks = append(c.ReduceTasks, task)
+	}
 
 	c.server()
 	return &c
