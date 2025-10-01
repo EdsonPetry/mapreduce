@@ -56,10 +56,23 @@ func CallExample() {
 	}
 }
 
+func CallAssignTask() {
+	args := AssignTaskArgs{}
+	reply := AssignTaskReply{}
+
+	ok := call("Coordinator.AssignTask", &args, &reply)
+	if ok {
+		// reply will contain TaskType, TaskID, Filename
+		fmt.Printf("Got task: %v\n", reply)
+	} else {
+		fmt.Printf("call failed!\n")
+	}
+}
+
 // send an RPC request to the coordinator, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
-func call(rpcname string, args interface{}, reply interface{}) bool {
+func call(rpcname string, args, reply any) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
