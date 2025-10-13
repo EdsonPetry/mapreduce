@@ -21,27 +21,19 @@ type Task struct {
 	FileName string
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
-// Example is an example RPC handler.
-// the RPC argument and reply types are defined in rpc.go.
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
+// RPC handlers for the workers to call
 
 func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
-	// TODO: Implement AssignTask logic
 	// find idle Map task.
 	for i := range c.MapTasks {
 		task := &c.MapTasks[i]
 
 		if task.State == Idle {
 			task.State = InProgress
-			// TODO: add deadline here
+			// TODO: add deadline
 
-			reply.TaskType = MapTask
-			reply.TaskID = task.ID
+			reply.Type = MapTask
+			reply.ID = task.ID
 			reply.FileName = task.FileName
 			reply.NumReducers = len(c.ReduceTasks)
 
@@ -50,7 +42,10 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 	}
 
 	// no idle map tasks found, for now we'll just return
+	return nil
+}
 
+func (c *Coordinator) FinishedTask(args *FinishedTaskArgs, reply *FinishedTaskReply) error {
 	return nil
 }
 
@@ -58,13 +53,14 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
-	// l, e := net.Listen("tcp", ":1234")
+	l, e := net.Listen("tcp", ":1234")
 	sockname := coordinatorSock()
 	os.Remove(sockname)
-	l, e := net.Listen("unix", sockname)
+	// l, e := net.Listen("unix", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
+
 	go http.Serve(l, nil)
 }
 

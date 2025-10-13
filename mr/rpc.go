@@ -3,30 +3,19 @@ package mr
 //
 // RPC definitions.
 //
-// remember to capitalize all names.
-//
 
 import (
 	"os"
 	"strconv"
 )
 
-//
-// example to show how to declare the arguments
-// and reply for an RPC.
-//
+type TaskState int
 
-type ExampleArgs struct {
-	X int
-}
-
-type ExampleReply struct {
-	Y int
-}
-
-type AssignTaskArgs struct {
-	// TODO: add fields (e.g. WorkerID)
-}
+const (
+	Idle TaskState = iota
+	InProgress
+	Completed
+)
 
 type TaskType int
 
@@ -37,20 +26,26 @@ const (
 	DoneTask
 )
 
+type AssignTaskArgs struct{}
+
 type AssignTaskReply struct {
-	TaskType    TaskType
-	TaskID      int
+	Type        TaskType
+	State       TaskState
+	ID          int
 	FileName    string // for map tasks
 	NumReducers int    // for map tasks
 }
 
-type TaskState int
+type FinishedTaskArgs struct {
+	ID   int
+	Type TaskType
+}
 
-const (
-	Idle TaskState = iota
-	InProgress
-	Completed
-)
+type FinishedTaskReply struct {
+	Type  TaskType
+	State TaskState
+	ID    int
+}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
