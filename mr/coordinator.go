@@ -53,10 +53,10 @@ func (c *Coordinator) FinishedTask(args *FinishedTaskArgs, reply *FinishedTaskRe
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
-	l, e := net.Listen("tcp", ":1234")
+	// l, e := net.Listen("tcp", ":1234")
 	sockname := coordinatorSock()
 	os.Remove(sockname)
-	// l, e := net.Listen("unix", sockname)
+	l, e := net.Listen("unix", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}

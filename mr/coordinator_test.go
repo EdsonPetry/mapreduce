@@ -1,6 +1,28 @@
 package mr
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"strings"
+	"testing"
+	"unicode"
+)
+
+// simpleMap function defined at package level for reuse
+func simpleMap(filename string, contents string) []KeyValue {
+	// function to detect word separators.
+	ff := func(r rune) bool { return !unicode.IsLetter(r) }
+
+	// split contents into an array of words.
+	words := strings.FieldsFunc(contents, ff)
+
+	kva := []KeyValue{}
+	for _, w := range words {
+		kv := KeyValue{w, "1"}
+		kva = append(kva, kv)
+	}
+	return kva
+}
 
 func TestMapTaskAssignment(t *testing.T) {
 	files := []string{"fileA.txt", "fileB.txt"}
@@ -29,39 +51,87 @@ func TestMapTaskAssignment(t *testing.T) {
 }
 
 func TestMapTaskIntermediateFiles(t *testing.T) {
-	// 1. Create a temporary input file with simple test data
-	//    - Use os.CreateTemp() or write to a known temp location
-	//    - Content suggestion: "hello world hello" (tests word frequency)
-	//    - Remember the filename to pass to coordinator
+	// Create temporary input file with content "hello world hello"
+	tempf, err := os.CreateTemp("", "fileA.txt")
+	if err != nil {
+		t.Fatalf("Error when creating temp file: %v", err)
+	}
+	defer os.Remove(tempf.Name())
 
-	// 2. Set up coordinator with the test file
-	//    - MakeCoordinator([]string{tempFileName}, nReduce)
-	//    - Choose nReduce = 2 or 3 to test partitioning across multiple files
+	if _, err := tempf.Write([]byte("hello world hello")); err != nil {
+		t.Fatalf("Error when writing to temp file: %v", err)
+	}
+	tempf.Close()
 
-	// 3. Create a simple word-count map function for testing
-	//    - Copy logic from mrapps/wc.go Map function (lines 19-31)
-	//    - Or import and reuse if possible
-	//    - Should split text into words and emit KeyValue{word, "1"}
+	MakeCoordinator([]string{tempf.Name()}, 1)
 
-	// 4. Simulate the worker's map task execution
-	//    - Call coordinator.AssignTask() to get a task assignment
-	//    - Read the input file
-	//    - Call the map function on file contents
-	//    - Partition results into buckets using ihash(key) % nReduce
-	//    - Write intermediate files: mr-{taskID}-{reduceID}
-	//    - Each file should contain JSON-encoded KeyValue pairs (one per line)
+	// Create channel for synchronization between test and worker goroutine
+	done := make(chan bool)
 
-	// 5. Verify intermediate file output
-	//    - Check that the expected number of mr-*-* files exist
-	//    - For each file:
-	//      a) Open and parse JSON (use json.Decoder, read line by line)
-	//      b) Verify each line is a valid KeyValue struct
-	//      c) Verify keys in this file hash to the correct bucket
-	//    - Verify all expected words appear across all files
-	//    - For "hello world hello": expect "hello" with count 2, "world" with count 1
+	// Launch Worker in goroutine with channel communication
+	go func() {
+		Worker(simpleMap, nil)
+		done <- true
+	}()
 
-	// 6. Clean up temporary files
-	//    - Remove temp input file
-	//    - Remove all mr-*-* intermediate files
-	//    - Use t.Cleanup() or defer for reliable cleanup
+	// Wait for worker completion
+	<-done
+
+	// Verify intermediate file mr-0-0 exists and has correct content
+	intermediateFile := "mr-0-0"
+	defer os.Remove(intermediateFile)
+
+	// Check file exists
+	if _, err := os.Stat(intermediateFile); os.IsNotExist(err) {
+		t.Fatalf("Expected intermediate file %s to exist", intermediateFile)
+	}
+
+	// Read file and verify JSON content
+	file, err := os.Open(intermediateFile)
+	if err != nil {
+		t.Fatalf("Error opening intermediate file: %v", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	var keyValues []KeyValue
+
+	// Read line by line with json.Decoder
+	for decoder.More() {
+		var kv KeyValue
+		if err := decoder.Decode(&kv); err != nil {
+			t.Fatalf("Error decoding JSON from intermediate file: %v", err)
+		}
+		keyValues = append(keyValues, kv)
+	}
+
+	// Verify expected key-value pairs are present
+	// For "hello world hello": expect to find "hello":"1" twice, "world":"1" once
+	expectedKeys := map[string]int{
+		"hello": 2,
+		"world": 1,
+	}
+
+	actualKeys := make(map[string]int)
+	for _, kv := range keyValues {
+		if kv.Value != "1" {
+			t.Fatalf("Expected all values to be '1', but got '%s' for key '%s'", kv.Value, kv.Key)
+		}
+		actualKeys[kv.Key]++
+	}
+
+	for expectedKey, expectedCount := range expectedKeys {
+		if actualCount, exists := actualKeys[expectedKey]; !exists {
+			t.Fatalf("Expected key '%s' not found in intermediate file", expectedKey)
+		} else if actualCount != expectedCount {
+			t.Fatalf("Expected key '%s' to appear %d times, but found %d times", expectedKey, expectedCount, actualCount)
+		}
+	}
+
+	// Verify no unexpected keys
+	for actualKey := range actualKeys {
+		if _, expected := expectedKeys[actualKey]; !expected {
+			t.Fatalf("Unexpected key '%s' found in intermediate file", actualKey)
+		}
+	}
 }
