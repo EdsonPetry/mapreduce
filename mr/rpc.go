@@ -37,8 +37,9 @@ type AssignTaskReply struct {
 }
 
 type FinishedTaskArgs struct {
-	ID   int
-	Type TaskType
+	ID       int
+	Type     TaskType
+	FileName string
 }
 
 type FinishedTaskReply struct {
@@ -46,6 +47,18 @@ type FinishedTaskReply struct {
 	State TaskState
 	ID    int
 }
+
+type (
+	WaitTaskArgs  struct{}
+	WaitTaskReply struct{}
+)
+
+type DoneTaskArgs struct {
+	ID   int
+	Type TaskType
+}
+
+type DoneTaskReply struct{}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
