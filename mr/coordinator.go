@@ -41,24 +41,50 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 		}
 	}
 
+	for i := range c.ReduceTasks {
+		task := &c.ReduceTasks[i]
+
+		if task.State == Idle {
+			task.State = InProgress
+
+			reply.Type = ReduceTask
+			reply.ID = task.ID
+			reply.FileName = task.FileName
+		}
+	}
+
 	// no idle map tasks found, for now we'll just return
 	return nil
 }
 
 func (c *Coordinator) FinishedTask(args *FinishedTaskArgs, reply *FinishedTaskReply) error {
-	// Find the corresponding task, mark it completed
+	// find finished task
 	for i := range c.MapTasks {
 		task := &c.MapTasks[i]
-		if task.ID == args.ID && task.Type == args.Type {
+
+		if task.ID == args.ID {
 			task.State = Completed
-
-			reply.State = Completed
-			reply.ID = task.ID
-			reply.Type = task.Type
-
-			return nil
 		}
 	}
+
+	// Mark non-assigned ReduceTask with filename of intermediate file
+	for i := range c.ReduceTasks {
+		task := &c.ReduceTasks[i]
+
+		if task.FileName != "" && task.State == Idle {
+			task.FileName = args.FileName // for locating intermediate file
+			break
+		}
+	}
+
+	return nil
+}
+
+func (c *Coordinator) WaitTask(args *WaitTaskArgs, reply *WaitTaskReply) *WaitTaskArgs {
+	return nil
+}
+
+func (c *Coordinator) DoneTask(args *DoneTaskArgs, reply *DoneTaskReply) *DoneTaskReply {
 	return nil
 }
 
@@ -80,9 +106,15 @@ func (c *Coordinator) server() {
 // Done is called by main/mrcoordinator.go periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
-	ret := false
+	ret := true
 
-	// Your code here.
+	for i := range c.ReduceTasks {
+		task := &c.ReduceTasks[i]
+
+		if task.State != Completed {
+			ret = false
+		}
+	}
 
 	return ret
 }

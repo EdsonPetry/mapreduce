@@ -34,51 +34,69 @@ func check(e error) {
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	task := CallAssignTask()
 
-	switch task.Type {
-	case MapTask:
-		// Read input file
-		data, err := os.ReadFile(task.FileName)
-		check(err)
-		content := string(data)
+	for task.Type != DoneTask {
+		task = CallAssignTask()
 
-		// Call mapf() on contents
-		intermediate := mapf(task.FileName, content)
-		fmt.Printf("intermediate: %v\n", intermediate)
-
-		// Write intermediate files
-		buckets := make([][]KeyValue, task.NumReducers)
-
-		for _, kv := range intermediate {
-			bucket := ihash(kv.Key) % task.NumReducers
-			buckets[bucket] = append(buckets[bucket], kv)
-		}
-
-		for i, kvs := range buckets {
-			oname := fmt.Sprintf("mr-%d-%d", task.ID, i)
-			ofile, err := os.Create(oname)
+		switch task.Type {
+		case MapTask:
+			// Read input file
+			data, err := os.ReadFile(task.FileName)
 			check(err)
+			content := string(data)
 
-			encoding := json.NewEncoder(ofile)
-			for _, kv := range kvs {
-				encoding.Encode((&kv))
+			// Call mapf() on contents
+			intermediate := mapf(task.FileName, content)
+
+			// Write intermediate files
+			buckets := make([][]KeyValue, task.NumReducers)
+
+			for _, kv := range intermediate {
+				bucket := ihash(kv.Key) % task.NumReducers
+				buckets[bucket] = append(buckets[bucket], kv)
 			}
 
-			ofile.Close()
+			for i, kvs := range buckets {
+				oname := fmt.Sprintf("mr-%d-%d", task.ID, i)
+				ofile, err := os.Create(oname)
+				check(err)
+
+				encoding := json.NewEncoder(ofile)
+				for _, kv := range kvs {
+					encoding.Encode((&kv))
+				}
+
+				task.FileName = ofile.Name()
+				ofile.Close()
+			}
+
+			// Tell coordinator we finished this map task
+			CallFinishedTask(task)
+
+		case ReduceTask:
+			// Read all intermediate files
+			data, err := os.ReadFile(task.FileName)
+			check(err)
+
+			var kvs []KeyValue
+
+			err = json.Unmarshal(data, &kvs)
+			if err != nil {
+				fmt.Println("Error unmarshaling JSON:", err)
+				return
+			}
+
+			fmt.Printf("Unmarshalled JSON data: %v", kvs)
+
+			// Call reducef() on data
+		// Write final output file
+		// Tell coordinator we finished this reduce task
+		case WaitTask:
+			// No tasks ready yet, sleep
+			time.Sleep(10 * time.Second)
+		case DoneTask:
+			// All work complete, exit
+			os.Exit(0)
 		}
-
-		// Tell coordinator we finished this map task
-		CallFinishedTask()
-
-	case ReduceTask:
-	// Read all intermediate files
-	// Call reducef() on data
-	// Write final output file
-	// Tell coordinator we finished this reduce task
-	case WaitTask:
-		// No tasks ready yet, sleep
-		time.Sleep(10 * time.Second)
-	case DoneTask:
-		// All work complete, exit
 	}
 }
 
@@ -97,9 +115,12 @@ func CallAssignTask() *AssignTaskReply {
 	return &reply
 }
 
-func CallFinishedTask() *FinishedTaskReply {
+func CallFinishedTask(task *AssignTaskReply) *FinishedTaskReply {
 	args := FinishedTaskArgs{}
 	reply := FinishedTaskReply{}
+	args.ID = task.ID
+	args.Type = task.Type
+	args.FileName = task.FileName
 
 	ok := call("Coordinator.FinishedTask", &args, &reply)
 	if ok {
@@ -109,6 +130,14 @@ func CallFinishedTask() *FinishedTaskReply {
 	}
 
 	return &reply
+}
+
+func CallWaitTask() *WaitTaskReply {
+	return nil
+}
+
+func CallDoneTask() *DoneTaskReply {
+	return nil
 }
 
 // send an RPC request to the coordinator, wait for the response.
