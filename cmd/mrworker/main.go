@@ -2,7 +2,7 @@ package main
 
 //
 // start a worker process, which is implemented
-// in ../mr/worker.go. typically there will be
+// in ../../mr/worker.go. typically there will be
 // multiple worker processes, talking to one coordinator.
 //
 // go run mrworker.go wc.so
@@ -10,11 +10,14 @@ package main
 // Please do not change this file.
 //
 
-import "mapreduce/mr"
-import "plugin"
-import "os"
-import "fmt"
-import "log"
+import (
+	"fmt"
+	"log"
+	"os"
+	"plugin"
+
+	"mapreduce/mr"
+)
 
 func main() {
 	if len(os.Args) != 2 {

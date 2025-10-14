@@ -46,6 +46,19 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 }
 
 func (c *Coordinator) FinishedTask(args *FinishedTaskArgs, reply *FinishedTaskReply) error {
+	// Find the corresponding task, mark it completed
+	for i := range c.MapTasks {
+		task := &c.MapTasks[i]
+		if task.ID == args.ID && task.Type == args.Type {
+			task.State = Completed
+
+			reply.State = Completed
+			reply.ID = task.ID
+			reply.Type = task.Type
+
+			return nil
+		}
+	}
 	return nil
 }
 
