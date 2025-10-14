@@ -14,3 +14,15 @@ To run a simple sequential map reduce
 go run ./cmd/mrsequential/ wc.so pg-*.txt
 more mr-out-0
 ```
+
+To run the coordinator
+
+```bash
+go run ./cmd/mrcoordinator/main.go wc.so pg-*.txt
+```
+
+To run the workers
+
+```bash
+go run ./cmd/mrworker/main.go
+```
