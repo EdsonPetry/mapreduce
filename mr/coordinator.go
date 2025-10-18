@@ -1,4 +1,4 @@
-// Package mr is the library code
+// Package mr is the library code for the distributed MapReduce
 package mr
 
 import (
@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 type Coordinator struct {
 	MapTasks    []Task
 	ReduceTasks []Task
+	mu          sync.Mutex
 }
 
 type Task struct {
@@ -23,14 +25,78 @@ type Task struct {
 
 // RPC handlers for the workers to call
 
+func (c *Coordinator) allMapTasksCompleted() bool {
+	allMapTasksCompleted := true
+	for i := range c.MapTasks {
+		task := &c.MapTasks[i]
+
+		if task.State != Completed {
+			allMapTasksCompleted = false
+			break
+		}
+	}
+
+	return allMapTasksCompleted
+}
+
+func (c *Coordinator) allTasksIdle() bool {
+	allTasksIdle := true
+
+	for i := range c.MapTasks {
+		task := &c.MapTasks[i]
+
+		if task.State != Idle || task.State != Completed {
+			allTasksIdle = false
+			return allTasksIdle
+		}
+	}
+
+	for i := range c.ReduceTasks {
+		task := &c.ReduceTasks[i]
+
+		if task.State != Idle || task.State != Completed {
+			allTasksIdle = false
+			return allTasksIdle
+		}
+	}
+
+	return allTasksIdle
+}
+
+func (c *Coordinator) allTasksCompleted() bool {
+	done := true
+	for i := range c.MapTasks {
+		task := &c.MapTasks[i]
+
+		if task.State != Completed {
+			done = false
+			return done
+		}
+	}
+
+	for i := range c.ReduceTasks {
+		task := &c.ReduceTasks[i]
+
+		if task.State != Completed {
+			done = false
+			return done
+		}
+	}
+
+	return done
+}
+
 func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
-	// find idle Map task.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Assign a MapTask when there's an idle MapTask
 	for i := range c.MapTasks {
 		task := &c.MapTasks[i]
 
 		if task.State == Idle {
 			task.State = InProgress
-			// TODO: add deadline
+			// TODO: add deadline for worker timeout detection
 
 			reply.Type = MapTask
 			reply.ID = task.ID
@@ -40,51 +106,62 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 			return nil
 		}
 	}
+	// Assign a ReduceTask when all map tasks are completed AND there's an idle reduce task
+	if c.allMapTasksCompleted() {
+		for i := range c.ReduceTasks {
+			task := &c.ReduceTasks[i]
 
-	for i := range c.ReduceTasks {
-		task := &c.ReduceTasks[i]
+			if task.State == Idle {
+				task.State = InProgress
+				reply.Type = ReduceTask
+				reply.ID = task.ID
 
-		if task.State == Idle {
-			task.State = InProgress
-
-			reply.Type = ReduceTask
-			reply.ID = task.ID
-			reply.FileName = task.FileName
+				return nil
+			}
 		}
 	}
 
-	// no idle map tasks found, for now we'll just return
+	// Assign a WaitTask if no idle tasks exist but work is still in progress
+	if c.allTasksIdle() {
+		reply.Type = WaitTask
+		return nil
+	}
+
+	// Assign a DoneTask when all map AND all reduce tasks are completed
+	if c.allTasksCompleted() {
+		reply.Type = DoneTask
+		return nil
+	}
+
+	// NOTE: if we get here maybe something went wrong, may want to return a Error reply.Type
 	return nil
 }
 
 func (c *Coordinator) FinishedTask(args *FinishedTaskArgs, reply *FinishedTaskReply) error {
-	// find finished task
-	for i := range c.MapTasks {
-		task := &c.MapTasks[i]
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-		if task.ID == args.ID {
-			task.State = Completed
+	// TODO: #1 This function needs proper task completion tracking
+	if args.Type == MapTask {
+		for i := range len(c.MapTasks) {
+			task := &c.MapTasks[i]
+
+			if task.ID == args.ID {
+				task.State = Completed
+				// TODO: #5 Clear any deadline/timeout for this task
+				break
+			}
+		}
+	} else if args.Type == ReduceTask {
+		for i := range len(c.ReduceTasks) {
+			task := &c.ReduceTasks[i]
+
+			if task.ID == args.ID {
+				task.State = Completed
+			}
 		}
 	}
 
-	// Mark non-assigned ReduceTask with filename of intermediate file
-	for i := range c.ReduceTasks {
-		task := &c.ReduceTasks[i]
-
-		if task.FileName != "" && task.State == Idle {
-			task.FileName = args.FileName // for locating intermediate file
-			break
-		}
-	}
-
-	return nil
-}
-
-func (c *Coordinator) WaitTask(args *WaitTaskArgs, reply *WaitTaskReply) *WaitTaskArgs {
-	return nil
-}
-
-func (c *Coordinator) DoneTask(args *DoneTaskArgs, reply *DoneTaskReply) *DoneTaskReply {
 	return nil
 }
 
@@ -103,9 +180,11 @@ func (c *Coordinator) server() {
 	go http.Serve(l, nil)
 }
 
-// Done is called by main/mrcoordinator.go periodically to find out
+// Done is called by cmd/mrcoordinator/main.go periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	ret := true
 
 	for i := range c.ReduceTasks {
@@ -120,7 +199,7 @@ func (c *Coordinator) Done() bool {
 }
 
 // MakeCoordinator creates a Coordinator.
-// main/mrcoordinator.go calls this function.
+// cmd/mrcoordinator/main.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}

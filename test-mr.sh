@@ -5,7 +5,7 @@
 #
 
 # un-comment this to run the tests with the Go race detector.
-# RACE=-race
+RACE=-race
 
 if [[ "$OSTYPE" = "darwin"* ]]; then
   if go version | grep 'go1.17.[012345]'; then
@@ -72,13 +72,13 @@ failed_any=0
 # first word-count
 
 # generate the correct output
-../mrsequential ../mrapps/wc.so ../pg*txt || exit 1
+../mrsequential ../mrapps/wc.so ../testdata/pg*txt || exit 1
 sort mr-out-0 >mr-correct-wc.txt
 rm -f mr-out*
 
 echo '***' Starting wc test.
 
-maybe_quiet $TIMEOUT ../mrcoordinator ../pg*txt &
+maybe_quiet $TIMEOUT ../mrcoordinator ../testdata/pg*txt &
 pid=$!
 
 # give the coordinator time to create the sockets.
@@ -111,13 +111,13 @@ wait
 rm -f mr-*
 
 # generate the correct output
-../mrsequential ../mrapps/indexer.so ../pg*txt || exit 1
+../mrsequential ../mrapps/indexer.so ../testdata/pg*txt || exit 1
 sort mr-out-0 >mr-correct-indexer.txt
 rm -f mr-out*
 
 echo '***' Starting indexer test.
 
-maybe_quiet $TIMEOUT ../mrcoordinator ../pg*txt &
+maybe_quiet $TIMEOUT ../mrcoordinator ../testdata/pg*txt &
 sleep 1
 
 # start multiple workers
@@ -140,7 +140,7 @@ echo '***' Starting map parallelism test.
 
 rm -f mr-*
 
-maybe_quiet $TIMEOUT ../mrcoordinator ../pg*txt &
+maybe_quiet $TIMEOUT ../mrcoordinator ../testdata/pg*txt &
 sleep 1
 
 maybe_quiet $TIMEOUT ../mrworker ../mrapps/mtiming.so &
@@ -168,7 +168,7 @@ echo '***' Starting reduce parallelism test.
 
 rm -f mr-*
 
-maybe_quiet $TIMEOUT ../mrcoordinator ../pg*txt &
+maybe_quiet $TIMEOUT ../mrcoordinator ../testdata/pg*txt &
 sleep 1
 
 maybe_quiet $TIMEOUT ../mrworker ../mrapps/rtiming.so &
@@ -190,7 +190,7 @@ echo '***' Starting job count test.
 
 rm -f mr-*
 
-maybe_quiet $TIMEOUT ../mrcoordinator ../pg*txt &
+maybe_quiet $TIMEOUT ../mrcoordinator ../testdata/pg*txt &
 sleep 1
 
 maybe_quiet $TIMEOUT ../mrworker ../mrapps/jobcount.so &
@@ -220,7 +220,7 @@ DF=anydone$$
 rm -f $DF
 
 (
-  maybe_quiet $TIMEOUT ../cmd/mrcoordinator/mrcoordinator ../pg*txt
+  maybe_quiet $TIMEOUT ../mrcoordinator ../testdata/pg*txt
   touch $DF
 ) &
 
@@ -280,13 +280,13 @@ rm -f mr-*
 echo '***' Starting crash test.
 
 # generate the correct output
-../mrsequential ../mrapps/nocrash.so ../pg*txt || exit 1
+../mrsequential ../mrapps/nocrash.so ../testdata/pg*txt || exit 1
 sort mr-out-0 >mr-correct-crash.txt
 rm -f mr-out*
 
 rm -f mr-done
 (
-  (maybe_quiet $TIMEOUT2 ../mrcoordinator ../pg*txt)
+  (maybe_quiet $TIMEOUT2 ../mrcoordinator ../testdata/pg*txt)
   touch mr-done
 ) &
 sleep 1

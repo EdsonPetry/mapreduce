@@ -4,17 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
+	"sort"
 	"time"
 )
 
 // KeyValue is a slice returned by the Map function.
 type KeyValue struct {
-	Key   string
-	Value string
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
 }
+
+// ByKey for sorting by key.
+type ByKey []KeyValue
+
+// Len for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -24,33 +35,34 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
-
 // Worker is called by cmd/mrworker/main.go.
-func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
-	task := CallAssignTask()
-
-	for task.Type != DoneTask {
-		task = CallAssignTask()
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) error {
+	for {
+		task := CallAssignTask()
 
 		switch task.Type {
 		case MapTask:
+			// NOTE: Map task logic:
+			// 1. Reads the input file
+			// 2. Calls mapf() to get KeyValue pairs
+			// 3. Partitions keys into buckets using ihash(key) % nReduce
+			// 4. Writes kvs files named mr-{mapTaskID}-{reduceID}
+			// 5. Tells coordinator the task is complete
+
 			// Read input file
 			data, err := os.ReadFile(task.FileName)
-			check(err)
+			if err != nil {
+				return fmt.Errorf("error reading input file: %w", err)
+			}
 			content := string(data)
 
 			// Call mapf() on contents
-			intermediate := mapf(task.FileName, content)
+			kvs := mapf(task.FileName, content)
 
-			// Write intermediate files
+			// Write kvs files
 			buckets := make([][]KeyValue, task.NumReducers)
 
-			for _, kv := range intermediate {
+			for _, kv := range kvs {
 				bucket := ihash(kv.Key) % task.NumReducers
 				buckets[bucket] = append(buckets[bucket], kv)
 			}
@@ -58,41 +70,99 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			for i, kvs := range buckets {
 				oname := fmt.Sprintf("mr-%d-%d", task.ID, i)
 				ofile, err := os.Create(oname)
-				check(err)
+				if err != nil {
+					return fmt.Errorf("error creating intermediate file %s: %w", oname, err)
+				}
 
 				encoding := json.NewEncoder(ofile)
 				for _, kv := range kvs {
 					encoding.Encode((&kv))
 				}
 
-				task.FileName = ofile.Name()
 				ofile.Close()
 			}
 
 			// Tell coordinator we finished this map task
 			CallFinishedTask(task)
+			continue
 
 		case ReduceTask:
-			// Read all intermediate files
-			data, err := os.ReadFile(task.FileName)
-			check(err)
+			// NOTE: Reduce task logic:
+			// 1. Finds corresponding intermediate files
+			// 2. Decodes JSON-encoded intermeidate files as stream
+			// 3. Partitions keys into buckets using ihash(key) % nReduce
+			// 4. Writes kvs files named mr-{mapTaskID}-{reduceID}
+			// 5. Tells coordinator the task is complete
 
-			var kvs []KeyValue
+			// NOTE: Worker can figure out what intermediate files to read based on task.mapTaskID
+			// where "mr-*-{task.ID}"
 
-			err = json.Unmarshal(data, &kvs)
+			pattern := fmt.Sprintf("mr-*-%d", task.ID)
+			matches, err := filepath.Glob(pattern)
 			if err != nil {
-				fmt.Println("Error unmarshaling JSON:", err)
-				return
+				return fmt.Errorf("error finding matches for pattern %q: %v", pattern, err)
 			}
 
-			fmt.Printf("Unmarshalled JSON data: %v", kvs)
+			// Read all kvs files and collect KeyValue pairs
+			// NOTE: Each line in kvs file is a separate JSON-encoded KeyValue
+			var kvs []KeyValue
+			for _, file := range matches {
+				f, err := os.Open(file)
+				if err != nil {
+					return fmt.Errorf("error opening intermediate file %s: %w", f.Name(), err)
+				}
 
-			// Call reducef() on data
-		// Write final output file
-		// Tell coordinator we finished this reduce task
+				decoder := json.NewDecoder(f)
+
+				// Decode each JSON object one at a time
+				for {
+					var kv KeyValue
+					if err := decoder.Decode(&kv); err != nil {
+						if err == io.EOF {
+							f.Close()
+							break
+						}
+					}
+					kvs = append(kvs, kv)
+				}
+
+				f.Close()
+			}
+
+			// Group all values by key
+			sort.Sort(ByKey(kvs))
+
+			// For each unique key, call reducef(key, []values)
+			oname := fmt.Sprintf("mr-out-%d", task.ID)
+			ofile, _ := os.Create(oname)
+			defer ofile.Close()
+
+			i := 0
+			for i < len(kvs) {
+				j := i + 1
+				for j < len(kvs) && kvs[j].Key == kvs[i].Key {
+					j++
+				}
+				values := []string{}
+				for k := i; k < j; k++ {
+					values = append(values, kvs[k].Value)
+				}
+				output := reducef(kvs[i].Key, values)
+
+				// this is the correct format for each line of Reduce output.
+				fmt.Fprintf(ofile, "%v %v\n", kvs[i].Key, output)
+
+				i = j
+			}
+
+			CallFinishedTask(task)
+			continue
+
 		case WaitTask:
 			// No tasks ready yet, sleep
 			time.Sleep(10 * time.Second)
+			continue
+
 		case DoneTask:
 			// All work complete, exit
 			os.Exit(0)
@@ -105,10 +175,7 @@ func CallAssignTask() *AssignTaskReply {
 	reply := AssignTaskReply{}
 
 	ok := call("Coordinator.AssignTask", &args, &reply)
-	if ok {
-		// reply will contain TaskType, TaskID, Filename
-		fmt.Printf("Got task: %v\n", reply)
-	} else {
+	if !ok {
 		fmt.Printf("call failed!\n")
 	}
 
@@ -120,24 +187,13 @@ func CallFinishedTask(task *AssignTaskReply) *FinishedTaskReply {
 	reply := FinishedTaskReply{}
 	args.ID = task.ID
 	args.Type = task.Type
-	args.FileName = task.FileName
 
 	ok := call("Coordinator.FinishedTask", &args, &reply)
-	if ok {
-		fmt.Printf("Finished task: %v\n", reply)
-	} else {
+	if !ok {
 		fmt.Println("call failed!")
 	}
 
 	return &reply
-}
-
-func CallWaitTask() *WaitTaskReply {
-	return nil
-}
-
-func CallDoneTask() *DoneTaskReply {
-	return nil
 }
 
 // send an RPC request to the coordinator, wait for the response.
