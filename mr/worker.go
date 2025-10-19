@@ -160,7 +160,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 		case WaitTask:
 			// No tasks ready yet, sleep
-			time.Sleep(10 * time.Second)
+			time.Sleep(1 * time.Second)
 			continue
 
 		case DoneTask:

@@ -176,7 +176,7 @@ maybe_quiet $TIMEOUT ../mrworker ../mrapps/rtiming.so
 
 NT=$(cat mr-out* | grep '^[a-z] 2' | wc -l | sed 's/ //g')
 if [ "$NT" -lt "2" ]; then
-  echo '---' too few parallel reduces.
+  echo '---' too few parallel reduces. "($NT)"
   echo '---' reduce parallelism test: FAIL
   failed_any=1
 else
@@ -185,7 +185,7 @@ fi
 
 wait
 
-#########################################################
+########################################################
 echo '***' Starting job count test.
 
 rm -f mr-*
@@ -324,7 +324,7 @@ else
   failed_any=1
 fi
 
-#########################################################
+########################################################
 if [ $failed_any -eq 0 ]; then
   echo '***' PASSED ALL TESTS
 else

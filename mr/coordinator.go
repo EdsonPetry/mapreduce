@@ -39,38 +39,12 @@ func (c *Coordinator) allMapTasksCompleted() bool {
 	return allMapTasksCompleted
 }
 
-func (c *Coordinator) allTasksIdle() bool {
-	allTasksIdle := true
-
-	for i := range c.MapTasks {
-		task := &c.MapTasks[i]
-
-		if task.State != Idle || task.State != Completed {
-			allTasksIdle = false
-			return allTasksIdle
-		}
-	}
-
-	for i := range c.ReduceTasks {
-		task := &c.ReduceTasks[i]
-
-		if task.State != Idle || task.State != Completed {
-			allTasksIdle = false
-			return allTasksIdle
-		}
-	}
-
-	return allTasksIdle
-}
-
 func (c *Coordinator) allTasksCompleted() bool {
-	done := true
 	for i := range c.MapTasks {
 		task := &c.MapTasks[i]
 
 		if task.State != Completed {
-			done = false
-			return done
+			return false
 		}
 	}
 
@@ -78,12 +52,11 @@ func (c *Coordinator) allTasksCompleted() bool {
 		task := &c.ReduceTasks[i]
 
 		if task.State != Completed {
-			done = false
-			return done
+			return false
 		}
 	}
 
-	return done
+	return true
 }
 
 func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
@@ -106,6 +79,7 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 			return nil
 		}
 	}
+
 	// Assign a ReduceTask when all map tasks are completed AND there's an idle reduce task
 	if c.allMapTasksCompleted() {
 		for i := range c.ReduceTasks {
@@ -121,19 +95,14 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 		}
 	}
 
-	// Assign a WaitTask if no idle tasks exist but work is still in progress
-	if c.allTasksIdle() {
-		reply.Type = WaitTask
-		return nil
-	}
-
 	// Assign a DoneTask when all map AND all reduce tasks are completed
 	if c.allTasksCompleted() {
 		reply.Type = DoneTask
 		return nil
 	}
 
-	// NOTE: if we get here maybe something went wrong, may want to return a Error reply.Type
+	// No tasks are ready, tell worker to wait
+	reply.Type = WaitTask
 	return nil
 }
 

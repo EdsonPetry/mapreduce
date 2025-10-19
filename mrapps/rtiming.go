@@ -7,19 +7,21 @@ package main
 // go build -buildmode=plugin rtiming.go
 //
 
-import "mapreduce/mr"
-import "fmt"
-import "os"
-import "syscall"
-import "time"
-import "io/ioutil"
+import (
+	"fmt"
+	"os"
+	"syscall"
+	"time"
+
+	"mapreduce/mr"
+)
 
 func nparallel(phase string) int {
 	// create a file so that other workers will see that
 	// we're running at the same time as them.
 	pid := os.Getpid()
 	myfilename := fmt.Sprintf("mr-worker-%s-%d", phase, pid)
-	err := ioutil.WriteFile(myfilename, []byte("x"), 0666)
+	err := os.WriteFile(myfilename, []byte("x"), 0o666)
 	if err != nil {
 		panic(err)
 	}
@@ -60,7 +62,6 @@ func nparallel(phase string) int {
 }
 
 func Map(filename string, contents string) []mr.KeyValue {
-
 	kva := []mr.KeyValue{}
 	kva = append(kva, mr.KeyValue{"a", "1"})
 	kva = append(kva, mr.KeyValue{"b", "1"})
