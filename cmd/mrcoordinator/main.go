@@ -2,7 +2,7 @@ package main
 
 // start the coordinator process, which is implemented
 // in ../../mr/coordinator.go
-// go run mrcoordinator.go pg*.txt
+// go run ./cmd/mrcoordinator/main.go pg*.txt
 // Please do not change this file.
 
 import (

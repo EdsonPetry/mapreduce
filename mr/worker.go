@@ -122,6 +122,9 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 							f.Close()
 							break
 						}
+						log.Printf("Error occurred when decoding key-value: %v", err)
+						f.Close()
+						break
 					}
 					kvs = append(kvs, kv)
 				}
@@ -135,7 +138,8 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			// For each unique key, call reducef(key, []values)
 			oname := fmt.Sprintf("mr-out-%d", task.ID)
 			ofile, _ := os.Create(oname)
-			defer ofile.Close()
+
+			// defer ofile.Close()
 
 			i := 0
 			for i < len(kvs) {
@@ -155,6 +159,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				i = j
 			}
 
+			ofile.Close()
 			CallFinishedTask(task)
 			continue
 
