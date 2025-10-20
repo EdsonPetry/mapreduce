@@ -122,6 +122,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 							f.Close()
 							break
 						}
+						// Log here so we don't kill the worker due to a corrupted file
 						log.Printf("Error occurred when decoding key-value: %v", err)
 						f.Close()
 						break
