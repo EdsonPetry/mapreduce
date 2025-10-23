@@ -44,6 +44,5 @@ func Reduce(key string, values []string) string {
 			invocations++
 		}
 	}
-	fmt.Printf("Reduce invoations: %d", invocations)
 	return strconv.Itoa(invocations)
 }

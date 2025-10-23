@@ -97,7 +97,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			// NOTE: Worker can figure out what intermediate files to read based on task.mapTaskID
 			// where "mr-*-{task.ID}"
 
-			pattern := fmt.Sprintf("mr-*-%d", task.ID)
+			pattern := fmt.Sprintf("mr-[0-9]*-%d", task.ID)
 			matches, err := filepath.Glob(pattern)
 			if err != nil {
 				return fmt.Errorf("error finding matches for pattern %q: %v", pattern, err)
@@ -117,13 +117,15 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				// Decode each JSON object one at a time
 				for {
 					var kv KeyValue
+
 					if err := decoder.Decode(&kv); err != nil {
 						if err == io.EOF {
+
 							f.Close()
 							break
 						}
 						// Log here so we don't kill the worker due to a corrupted file
-						log.Printf("Error occurred when decoding key-value: %v", err)
+						log.Printf("error occurred when decoding kv %v: %v\n", kv, err)
 						f.Close()
 						break
 					}
