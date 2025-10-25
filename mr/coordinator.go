@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
+	"time"
 )
 
 type Coordinator struct {
@@ -17,10 +18,11 @@ type Coordinator struct {
 }
 
 type Task struct {
-	ID       int
-	Type     TaskType
-	State    TaskState
-	FileName string
+	ID        int
+	Type      TaskType
+	State     TaskState
+	FileName  string
+	Timestamp time.Time
 }
 
 // RPC handlers for the workers to call
@@ -63,13 +65,31 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// For each InProgress task, check if (current time - assigned time) > timeout (10s)
+	for i := range c.MapTasks {
+		task := &c.MapTasks[i]
+
+		if task.State == InProgress && time.Since(task.Timestamp) > (10*time.Second) {
+			// reset task, assuming worker is dead
+			task.State = Idle
+		}
+	}
+
+	for i := range c.ReduceTasks {
+		task := &c.ReduceTasks[i]
+
+		if task.State == InProgress && time.Since(task.Timestamp) > (10*time.Second) {
+			task.State = Idle
+		}
+	}
+
 	// Assign a MapTask when there's an idle MapTask
 	for i := range c.MapTasks {
 		task := &c.MapTasks[i]
 
 		if task.State == Idle {
 			task.State = InProgress
-			// TODO: add deadline for worker timeout detection
+			task.Timestamp = time.Now()
 
 			reply.Type = MapTask
 			reply.ID = task.ID
@@ -87,6 +107,8 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 
 			if task.State == Idle {
 				task.State = InProgress
+				task.Timestamp = time.Now()
+
 				reply.Type = ReduceTask
 				reply.ID = task.ID
 
@@ -109,15 +131,13 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 func (c *Coordinator) FinishedTask(args *FinishedTaskArgs, reply *FinishedTaskReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	// TODO: #1 This function needs proper task completion tracking
 	if args.Type == MapTask {
 		for i := range len(c.MapTasks) {
 			task := &c.MapTasks[i]
 
 			if task.ID == args.ID {
 				task.State = Completed
-				// TODO: #5 Clear any deadline/timeout for this task
+				task.Timestamp = time.Time{}
 				break
 			}
 		}
@@ -127,6 +147,7 @@ func (c *Coordinator) FinishedTask(args *FinishedTaskArgs, reply *FinishedTaskRe
 
 			if task.ID == args.ID {
 				task.State = Completed
+				task.Timestamp = time.Time{}
 			}
 		}
 	}
@@ -174,12 +195,12 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	for i, file := range files {
-		task := Task{i, MapTask, Idle, file}
+		task := Task{i, MapTask, Idle, file, time.Time{}}
 		c.MapTasks = append(c.MapTasks, task)
 	}
 
 	for i := range nReduce {
-		task := Task{i, ReduceTask, Idle, ""}
+		task := Task{i, ReduceTask, Idle, "", time.Time{}}
 		c.ReduceTasks = append(c.ReduceTasks, task)
 	}
 
